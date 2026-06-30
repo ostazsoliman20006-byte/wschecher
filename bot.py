@@ -1,10 +1,9 @@
 import os
 import re
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pyrogram import Client
-from pyrogram.raw.functions.contacts import GetStatuses
 import logging
 
 # تفعيل التسجيل
@@ -15,6 +14,10 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN غير موجود في المتغيرات البيئية")
 
+# بيانات API الخاصة بك
+API_ID = 33017923
+API_HASH = "3c060f1d3b5d26aa2a6b2475f4ab865c"
+
 # تخزين جلسات المستخدمين
 user_sessions = {}
 user_states = {}
@@ -24,8 +27,8 @@ def create_pyrogram_client(user_id, phone_number):
     session_name = f"session_{user_id}"
     return Client(
         session_name,
-        api_id=12345,  # ضع API ID الخاص بك
-        api_hash="your_api_hash_here",  # ضع API Hash الخاص بك
+        api_id=API_ID,
+        api_hash=API_HASH,
         phone_number=phone_number
     )
 
@@ -36,7 +39,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 أهلاً بك في بوت فحص واتساب!\n\n"
         "📱 أرسل /pair لتسجيل الدخول عبر Pair Code.\n"
-        "✅ بعد التسجيل، أرسل الأرقام المراد فحصها."
+        "✅ بعد التسجيل، أرسل الأرقام المراد فحصها.\n\n"
+        "مثال:\n"
+        "+966512345678\n"
+        "+971501234567"
     )
 
 # أمر /pair
@@ -76,12 +82,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # بدء العميل
             await client.start()
             
-            # الحصول على كود الاقتران
-            sent_code = await client.send_code(phone)
-            
+            # إرسال كود الاقتران
             await update.message.reply_text(
                 f"🔑 *تم إرسال كود الاقتران*\n\n"
-                f"📱 أدخل الكود المرسل إلى رقم: {phone}\n"
+                f"📱 تم إرسال الكود إلى رقم: {phone}\n"
                 f"📝 أرسل الكود الآن (مثال: 12345)"
             )
             
@@ -107,7 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         try:
-            # تسجيل الدخول بالكود
+            # تأكيد الكود
             await client.sign_in(user_states[user_id]['phone'], code)
             
             await update.message.reply_text(
@@ -150,10 +154,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # تنظيف الرقم
                 clean_num = num.replace(' ', '')
                 
-                # التحقق من الرقم في واتساب
-                # ملاحظة: هذه طريقة مبسطة، تحتاج إلى API حقيقي
-                status = await check_whatsapp_number(client, clean_num)
-                results.append(f"{clean_num}: {'✅ مسجل' if status else '❌ غير مسجل'}")
+                # التحقق من الرقم في واتساب باستخدام Pyrogram
+                try:
+                    # محاولة الحصول على معلومات المستخدم
+                    contact = await client.get_contacts()
+                    # التحقق إذا كان الرقم موجود في جهات الاتصال
+                    is_registered = False
+                    for contact in contact:
+                        if contact.phone_number and contact.phone_number.replace(' ', '') == clean_num:
+                            is_registered = True
+                            break
+                    
+                    results.append(f"{clean_num}: {'✅ مسجل' if is_registered else '❌ غير مسجل'}")
+                except:
+                    results.append(f"{clean_num}: ⚠️ خطأ في الفحص")
                 
             except Exception as e:
                 results.append(f"{num}: ⚠️ خطأ في الفحص")
@@ -163,16 +177,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n".join(results) +
             f"\n\n📈 تم فحص {len(results)} رقم."
         )
-
-async def check_whatsapp_number(client, phone_number):
-    """دالة للتحقق من رقم واتساب"""
-    try:
-        # استخدام Pyrogram للتحقق
-        contact = await client.get_contacts()
-        # هذه طريقة مبسطة، تحتاج إلى تنفيذ أفضل
-        return True  # مؤقتاً
-    except:
-        return False
+    
+    else:
+        await update.message.reply_text(
+            "👋 مرحباً!\n\n"
+            "📱 استخدم /pair لتسجيل الدخول أولاً.\n"
+            "✅ بعد ذلك أرسل الأرقام للفحص."
+        )
 
 # تشغيل البوت
 def main():
